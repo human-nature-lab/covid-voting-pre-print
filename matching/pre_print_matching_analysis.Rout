@@ -1,0 +1,374 @@
+
+R version 4.0.2 (2020-06-22) -- "Taking Off Again"
+Copyright (C) 2020 The R Foundation for Statistical Computing
+Platform: x86_64-apple-darwin17.0 (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> # PRE-PRINT ANALYSIS
+> 
+> `%notin%` <- Negate(`%in%`)
+> 
+> library("PanelMatch")
+> library("dplyr")
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+> library("tibble")
+> library("magrittr")
+> library("ggplot2")
+> 
+> source("matching_helper_functions.R")
+> load(file = "pre_print_data.RData")
+> 
+> ### MAIN ANALYSIS
+> 
+> PM.s <- PanelMatch(
++   lag = 20,
++   time.id = "running",
++   unit.id = "fips",
++   treatment = "primary_period",
++   refinement.method = "mahalanobis",
++   data = as.data.frame(dFr),
++   match.missing = TRUE,
++   covs.formula = ~
++     pop_ln + I(lag(cum_death_rte, 1:20)) + perc_65_up + Urate + bacc +
++     pop_density + median_inc_ln + black + trump_share_2016 + first_case,
++   size.match = 5,
++   qoi = "att",
++   outcome.var = "death_rte",
++   lead = 0:25,
++   forbid.treatment.reversal = TRUE,
++   use.diagonal.variance.matrix = TRUE)
+> 
+> covariates.s <- c(
++   "cum_death_rte", "perc_65_up", "Urate", "bacc", 
++   "pop_density", "median_inc_ln",
++   "black", "trump_share_2016", "first_case", "pop_ln")
+> 
+> cb.s <- CB_plot(
++   PM.s,
++   as.data.frame(dFr),
++   covariates.s,
++   fname = "figs/cb_plot_standard.png")
+Saving 7 x 7 in image
+> 
+> PE.s <- PanelEstimate(
++   sets = PM.s,
++   data = as.data.frame(dFr))
+> 
+> pe.s <- procres(PE.s, death_window, "standard")
+Weighted Difference-in-Differences with Mahalanobis Distance
+Matches created with 20 lags
+
+Standard errors computed with 1000 Weighted bootstrap samples
+
+Estimate of Average Treatment Effect on the Treated (ATT) by Period:
+> 
+> pl.s <- plotres(
++   pe.s, 
++   fname = "figs/standard_att.png",
++   title = "",
++   caption = "")
+> 
+> ### without pre-COVID states
+> 
+> dFr_ne <- dFr %>%
++   filter(state %notin% c("South Carolina", "Nevada", "New Hampshire", "Iowa"))
+> 
+> PM.s_ne <- PanelMatch(
++   lag = 20,
++   time.id = "running",
++   unit.id = "fips",
++   treatment = "primary_period",
++   refinement.method = "mahalanobis",
++   data = as.data.frame(dFr_ne),
++   match.missing = TRUE,
++   covs.formula = ~
++     pop_ln + I(lag(cum_death_rte, 1:20)) + perc_65_up + Urate + bacc +
++     pop_density + median_inc_ln + black + trump_share_2016 + first_case,
++   size.match = 5,
++   qoi = "att",
++   outcome.var = "death_rte",
++   lead = 0:25,
++   # start at 10 days after primary : window is 10 (0) to 30 (20)
++   forbid.treatment.reversal = TRUE,
++   use.diagonal.variance.matrix = TRUE)
+> 
+> covariates.s <- c(
++   "cum_death_rte", "perc_65_up", "Urate", "bacc", 
++   "pop_density", "median_inc_ln",
++   "black", "trump_share_2016", "first_case", "pop_ln")
+> 
+> cb.s_ne <- CB_plot(
++   PM.s_ne,
++   as.data.frame(dFr_ne),
++   covariates.s,
++   fname = "figs/cb_plot_standard_ne.png",
++   tt = "Balance: pre-COVID states removed")
+Saving 7 x 7 in image
+> 
+> PE.s_ne <- PanelEstimate(
++   sets = PM.s_ne,
++   data = as.data.frame(dFr_ne))
+> 
+> pe.s_ne <- procres(PE.s_ne, death_window, "standard")
+Weighted Difference-in-Differences with Mahalanobis Distance
+Matches created with 20 lags
+
+Standard errors computed with 1000 Weighted bootstrap samples
+
+Estimate of Average Treatment Effect on the Treated (ATT) by Period:
+> 
+> pl.s_ne <- plotres(
++   pe.s_ne,
++   fname = "figs/standard_att_ne.png",
++   title = "ATT: pre-COVID states removed",
++   caption = "")
+> 
+> ### TURNOUT-STRATIFIED ANALYSES
+> 
+> ### stratify by turnout
+> 
+> ## need to feed Cc from turnout.R
+> 
+> dFr.T <- dFr %>% left_join(Cc, by = "fips")
+> 
+> ## turnout based on 50th p-tile
+> ## include treated counties above 50% p-tile w.r.t. cnty turnout rte
+> 
+> dFr.T <- mk_toss(dFr.T, tr_q, quant = 3) # 3 is 50%
+There were 50 or more warnings (use warnings() to see the first 50)
+> 
+> ## "high" model
+> 
+> # toss indicates that primary-held county is low turnout, and flags all
+> # data s.t. date >= the first timepoint of the primary window
+> 
+> # big reduction in sample size
+> dFr.t.50 <- dFr.T %>% filter(toss == 0)
+> 
+> PM.s.t.50 <- PanelMatch(
++   lag = 20,
++   time.id = "running",
++   unit.id = "fips",
++   treatment = "primary_period",
++   refinement.method = "mahalanobis",
++   data = as.data.frame(dFr.t.50),
++   match.missing = TRUE,
++   covs.formula = ~
++     pop_ln + I(lag(cum_death_rte, 1:20)) + perc_65_up + Urate + bacc +
++     pop_density + median_inc_ln + black + trump_share_2016 + first_case,
++   size.match = 5,
++   qoi = "att",
++   outcome.var = "death_rte",
++   lead = 0:25,
++   # start at 10 days after primary : window is 10 (0) to 30 (20)
++   forbid.treatment.reversal = TRUE,
++   use.diagonal.variance.matrix = TRUE)
+> 
+> cb.s.t.50 <- CB_plot(
++   PM.s.t.50,
++   as.data.frame(dFr.t.50),
++   covariates.s,
++   fname = "figs/sb_50H.png",
++   tt = "Balance: treated above 50th percentile")
+Saving 7 x 7 in image
+> 
+> PE.s.t.50 <- PanelEstimate(
++   sets = PM.s.t.50, 
++   data = as.data.frame(dFr.t.50))
+> 
+> pe.s.t.50 <- procres(PE.s.t.50, death_window, "50H turnout only")
+Weighted Difference-in-Differences with Mahalanobis Distance
+Matches created with 20 lags
+
+Standard errors computed with 1000 Weighted bootstrap samples
+
+Estimate of Average Treatment Effect on the Treated (ATT) by Period:
+> 
+> pl.s.t.50 <- plotres(
++   pe.s.t.50,
++   death_window = death_window,
++   fname = "figs/standard_model_res_50H_turn.png",
++   title = "ATT: treated above 50th percentile")
+> 
+> ## "low" turnout model
+> 
+> dFr.t.50.L <- dFr.T %>% filter(tossL == 0)
+> 
+> 
+> PM.s.t.50.L <- PanelMatch(
++   lag = 20, 
++   time.id = "running", 
++   unit.id = "fips", 
++   treatment = "primary_period", 
++   refinement.method = "mahalanobis",
++   data = as.data.frame(dFr.t.50.L),
++   match.missing = TRUE, 
++   covs.formula = ~ 
++     pop_ln + I(lag(cum_death_rte, 1:20)) + perc_65_up + Urate + bacc +
++     pop_density + median_inc_ln + black + trump_share_2016 + first_case, 
++   size.match = 5,
++   qoi = "att",
++   outcome.var = "death_rte",
++   lead = 0:25, 
++   # start at 10 days after primary : window is 10 (0) to 30 (20)
++   forbid.treatment.reversal = TRUE,
++   use.diagonal.variance.matrix = TRUE)
+> 
+> cb.s.t.50.L <- CB_plot(
++   PM.s.t.50.L,
++   as.data.frame(dFr.t.50.L),
++   covariates.s,
++   fname = "figs/sb_50L.png",
++   tt = "Balance: treated below 50th percentile")
+Saving 7 x 7 in image
+> 
+> PE.s.t.50.L <- PanelEstimate(
++   sets = PM.s.t.50.L, 
++   data = as.data.frame(dFr.t.50.L))
+> 
+> pe.s.t.50.L <- procres(PE.s.t.50.L, death_window, "50L turnout only")
+Weighted Difference-in-Differences with Mahalanobis Distance
+Matches created with 20 lags
+
+Standard errors computed with 1000 Weighted bootstrap samples
+
+Estimate of Average Treatment Effect on the Treated (ATT) by Period:
+> 
+> pl.s.t.50.L <- plotres(
++   pe.s.t.50.L, 
++   death_window = death_window,
++   fname = "figs/standard_model_res_50L_turn.png",
++   title = "ATT: treated below 50th percentile")
+> 
+> ## turnout based on 25th pct
+> # include treated counties above 25% p-tile w.r.t. cnty turnout rte
+> 
+> dFr.T25 <- mk_toss(dFr.T, tr_q, quant = 2)
+There were 50 or more warnings (use warnings() to see the first 50)
+> 
+> ## "high" turnout model
+> 
+> dFr.t.25 <- dFr.T25 %>% filter(toss == 0)
+> 
+> PM.s.t.25 <- PanelMatch(
++   lag = 20, 
++   time.id = "running", 
++   unit.id = "fips", 
++   treatment = "primary_period", 
++   refinement.method = "mahalanobis",
++   data = as.data.frame(dFr.t.25),
++   match.missing = TRUE, 
++   covs.formula = ~ 
++     pop_ln + I(lag(cum_death_rte, 1:20)) + perc_65_up + Urate + bacc +
++     pop_density + median_inc_ln + black + trump_share_2016 + first_case, 
++   size.match = 5,
++   qoi = "att",
++   outcome.var = "death_rte",
++   lead = 0:25, 
++   # start at 10 days after primary : window is 10 (0) to 30 (20)
++   forbid.treatment.reversal = TRUE,
++   use.diagonal.variance.matrix = TRUE)
+> 
+> cb.s.t.25 <- CB_plot(
++   PM.s.t.25,
++   as.data.frame(dFr.t.25),
++   covariates.s,
++   fname = "figs/sb_25H.png",
++   tt = "Balance: treated above 25th percentile")
+Saving 7 x 7 in image
+> 
+> PE.s.t.25 <- PanelEstimate(
++   sets = PM.s.t.25,
++   data = as.data.frame(dFr.t.25))
+> 
+> pe.s.t.25 <- procres(PE.s.t.25, death_window, "25H turnout only")
+Weighted Difference-in-Differences with Mahalanobis Distance
+Matches created with 20 lags
+
+Standard errors computed with 1000 Weighted bootstrap samples
+
+Estimate of Average Treatment Effect on the Treated (ATT) by Period:
+> 
+> pl.s.t.25 <- plotres(
++   pe.s.t.25,
++   death_window = death_window,
++   fname = "figs/standard_model_res_25H_turn.png",
++   title = "ATT: treated above 25th percentile")
+> 
+> ## "low" turnout model
+> 
+> dFr.t.25.L <- dFr.T25 %>% filter(tossL == 0)
+> 
+> PM.s.t.25.L <- PanelMatch(
++   lag = 20,
++   time.id = "running",
++   unit.id = "fips",
++   treatment = "primary_period",
++   refinement.method = "mahalanobis",
++   data = as.data.frame(dFr.t.25.L),
++   match.missing = TRUE,
++   covs.formula = ~
++     pop_ln + I(lag(cum_death_rte, 1:20)) + perc_65_up + Urate + bacc +
++     pop_density + median_inc_ln + black + trump_share_2016 + first_case, 
++   size.match = 5,
++   qoi = "att",
++   outcome.var = "death_rte",
++   lead = 0:25, 
++   # start at 10 days after primary : window is 10 (0) to 30 (20)
++   forbid.treatment.reversal = TRUE,
++   use.diagonal.variance.matrix = TRUE)
+> 
+> cb.s.t.25.L <- CB_plot(
++   PM.s.t.25.L,
++   as.data.frame(dFr.t.25.L),
++   covariates.s,
++   fname = "figs/sb_25L.png",
++   tt = "Balance: treated below 25th percentile")
+Saving 7 x 7 in image
+> 
+> PE.s.t.25.L <- PanelEstimate(
++   sets = PM.s.t.25.L,
++   data = as.data.frame(dFr.t.25.L))
+> 
+> pe.s.t.25.L <- procres(PE.s.t.25.L, death_window, "25L turnout only")
+Weighted Difference-in-Differences with Mahalanobis Distance
+Matches created with 20 lags
+
+Standard errors computed with 1000 Weighted bootstrap samples
+
+Estimate of Average Treatment Effect on the Treated (ATT) by Period:
+> 
+> pl.s.t.25.L <- plotres(
++   pe.s.t.25.L,
++   death_window = death_window,
++   fname = "figs/standard_model_res_25L_turn.png",
++   title = "ATT: treated below 25th percentile")
+> 
+> ### end turnout based on 25th pct
+> 
+> proc.time()
+    user   system  elapsed 
+1654.565  121.891 1779.647 
